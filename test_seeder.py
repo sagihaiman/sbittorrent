@@ -2,28 +2,38 @@ import os
 import sys
 import time
 import threading
-from torrent_files.torrent import create_torrent, load_torrent
-from torrent_files.tracker import run_tracker
-from torrent_files.tracker_client import TrackerClient
-from Handshake.protocol import run_seeder, file_sha1
+from torrent import create_torrent, load_torrent
+from tracker import run_tracker
+from tracker_client import MultiTrackerClient
+from protocol import build_seeder_library, run_seeder
 
 TRACKER_PORT = 8000
 SEEDER_PORT  = 9000
 
-# ── Args ──────────────────────────────────────────────────────────────────────
-if len(sys.argv) < 3:
-    print("Usage: python test_seeder.py <file> <your_ip>")
-    print("  your_ip: the IP address other machines can reach you on")
+# ─────────────────────────────────────────────
+# ARGS
+# Usage: python test_seeder.py <your_ip> <file1> [file2] [file3] ...
+# ─────────────────────────────────────────────
+
+if len(sys.argv) < 2:
+    print("Usage: python test_seeder.py <your_ip> <file1> [file2] ...")
+    print("  your_ip: IP address other machines can reach you on")
+    print("  file1+:  files to seed")
     sys.exit(1)
 
-file_path   = sys.argv[1]
-my_ip       = sys.argv[2]
-torrent_path = file_path + ".torrent"
-tracker_url  = f"http://{my_ip}:{TRACKER_PORT}/announce"
+my_ip      = sys.argv[1]
+file_paths = []
+with open("kept_files.txt") as f:
+    for line in f:
+        file_paths.append(line.strip())
+file_paths += sys.argv[2:]
+tracker_url = f"http://{my_ip}:{TRACKER_PORT}/announce"
 
-if not os.path.exists(file_path):
-    print(f"[SEEDER] ❌ File not found: {file_path}")
-    sys.exit(1)
+# Validate files
+for fp in file_paths:
+    if not os.path.exists(fp):
+        print(f"[SEEDER] File not found: {fp}")
+        sys.exit(1)
 
 # ── Step 1: Start tracker ─────────────────────────────────────────────────────
 print("\n── Step 1: Starting tracker ─────────────────────────")
@@ -36,22 +46,33 @@ tracker_thread.start()
 time.sleep(0.3)
 print(f"[SEEDER] Tracker running at {tracker_url}")
 
-# ── Step 2: Create .torrent file ──────────────────────────────────────────────
-print("\n── Step 2: Creating .torrent file ───────────────────")
-create_torrent(file_path, tracker_url, torrent_path)
-_, info_hash = load_torrent(torrent_path)
-print(f"[SEEDER] Share '{torrent_path}' with the leecher")
+# ── Step 2: Create .torrent files ─────────────────────────────────────────────
+print("\n── Step 2: Creating .torrent files ──────────────────")
+torrent_file_pairs = {}  # (torrent_path, file_path)
 
-# ── Step 3: Announce to tracker + serve file ──────────────────────────────────
-print("\n── Step 3: Announcing to tracker and serving ────────")
+for file_path in file_paths:
+    torrent_path = file_path + ".torrent"
+    create_torrent(file_path, tracker_url, torrent_path)
+    torrent_file_pairs[torrent_path] = file_path
+    print(f"[SEEDER] Share '{torrent_path}' with leechers")
 
-seeder_client = TrackerClient(torrent_path, local_port=SEEDER_PORT)
-seeder_client.uploaded = os.path.getsize(file_path)
-seeder_client.left     = 0  # we have the full file
-seeder_client.start()
+# ── Step 3: Announce all torrents to tracker ──────────────────────────────────
+print("\n── Step 3: Announcing to tracker ────────────────────")
+multi_client = MultiTrackerClient(local_port=SEEDER_PORT)
 
-print(f"[SEEDER] Serving on {my_ip}:{SEEDER_PORT} — waiting for leechers...")
+for torrent_path, file_path in torrent_file_pairs.items():
+    file_size = os.path.getsize(file_path)
+    multi_client.add_torrent(torrent_path, uploaded=file_size, left=0)
+
+multi_client.start_all()
+multi_client.list_torrents()
+
+# ── Step 4: Build library and serve ──────────────────────────────────────────
+print("\n── Step 4: Building library and serving ─────────────")
+library = build_seeder_library(torrent_file_pairs)
+
+print(f"\n[SEEDER] Serving {len(library)} file(s) on {my_ip}:{SEEDER_PORT}")
 print(f"[SEEDER] Press Ctrl+C to stop\n")
 
-# Run seeder in main thread so the script stays alive
-run_seeder(file_path, host="0.0.0.0", port=SEEDER_PORT, file_hash=info_hash)
+# run_seeder blocks in main thread — keeps script alive
+run_seeder(library=library, host="0.0.0.0", port=SEEDER_PORT)

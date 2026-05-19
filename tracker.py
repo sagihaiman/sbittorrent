@@ -2,7 +2,7 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, unquote_to_bytes
-from torrent_files.torrent import bencode
+from torrent import bencode
 
 # ─────────────────────────────────────────────
 # TRACKER STATE
