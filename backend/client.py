@@ -6,6 +6,7 @@ from torrent import create_torrent, load_torrent
 from tracker import run_tracker
 from tracker_client import MultiTrackerClient
 from protocol import run_seeder, run_leecher, file_sha1, split_file
+import socket
 
 TRACKER_PORT = 8000
 SEEDER_PORT  = 9000
@@ -20,7 +21,20 @@ KEPT_FILES   = os.path.join(_HERE, "kept_files.txt")
 # CLIENT
 # ─────────────────────────────────────────────
 
+def get_local_ip() -> str:
+    try:
+        # Connect to an external address to find which interface we'd use
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 class Client:
+
     def __init__(self, my_ip: str):
         self.my_ip              = my_ip
         self.tracker_url        = f"http://{my_ip}:{TRACKER_PORT}/announce"
@@ -260,3 +274,4 @@ class Client:
         self.download_dir = os.path.abspath(path)
         os.makedirs(self.download_dir, exist_ok=True)
         print(f"[CLIENT] Download dir: {self.download_dir}")
+

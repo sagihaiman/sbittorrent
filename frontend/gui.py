@@ -400,6 +400,105 @@ class App(ctk.CTk):
 
 
 # ─────────────────────────────────────────────
+# IP PICKER (shown before main window)
+# ─────────────────────────────────────────────
+
+def get_all_ips() -> list:
+    """Return all non-loopback IPv4 addresses on this machine."""
+    import socket
+    ips = []
+    try:
+        # Get all interfaces
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            ip = info[4][0]
+            if ip and not ip.startswith("127.") and ":" not in ip:
+                if ip not in ips:
+                    ips.append(ip)
+    except Exception:
+        pass
+
+    # Also try the routing trick as a candidate
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        routed = s.getsockname()[0]
+        s.close()
+        if routed not in ips and not routed.startswith("127."):
+            ips.append(routed)
+    except Exception:
+        pass
+
+    return ips or ["127.0.0.1"]
+
+
+class IPPickerDialog(ctk.CTkToplevel):
+    """Shown on startup — lets user pick which network interface to use."""
+
+    def __init__(self):
+        # Temporary root just for this dialog
+        self._root_window = ctk.CTk()
+        self._root_window.withdraw()  # hide the blank root
+
+        super().__init__(self._root_window)
+        self.title("SBITTORRENT — Select Network Interface")
+        self.configure(fg_color=PANEL_BG)
+        self.resizable(False, False)
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.grab_set()
+
+        # Center on screen
+        self.update_idletasks()
+        w, h = 420, 240
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+
+        self.result = None
+        self._build()
+        self.lift()
+        self.focus_force()
+
+    def _build(self):
+        ctk.CTkLabel(self, text="SBITTORRENT", font=FONT_TITLE,
+                     text_color=ACCENT).pack(pady=(18, 4))
+        ctk.CTkLabel(self, text="Select your network interface (LAN, not VPN)",
+                     font=FONT_SMALL, text_color=ACCENT).pack(pady=(0, 10))
+
+        ips = get_all_ips()
+        self._var = ctk.StringVar(value=ips[0])
+
+        self._menu = ctk.CTkOptionMenu(
+            self, values=ips, variable=self._var,
+            fg_color=ROW_BG, button_color=ACCENT,
+            button_hover_color="#4A0505",
+            dropdown_fg_color=ROW_BG,
+            dropdown_hover_color=ROW_HOVER,
+            text_color=WHITE, dropdown_text_color=WHITE,
+            font=FONT_ROW, width=300
+        )
+        self._menu.pack(pady=(0, 16))
+
+        ctk.CTkButton(self, text="Launch", command=self._ok,
+                      fg_color=ACCENT, hover_color="#4A0505",
+                      text_color=TEXT_LIGHT, font=FONT_BTN,
+                      corner_radius=10, width=160).pack()
+
+    def _ok(self):
+        self.result = self._var.get()
+        self._root_window.quit()
+
+    def _cancel(self):
+        self.result = None
+        self._root_window.quit()
+
+    def ask(self) -> str:
+        self._root_window.mainloop()
+        self.destroy()
+        self._root_window.destroy()
+        return self.result
+
+
+# ─────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────
 
@@ -407,22 +506,22 @@ if __name__ == "__main__":
     # Project root is one level above frontend/
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     backend_dir  = os.path.join(project_root, "backend")
-
-    # Add backend/ to path so all backend modules import each other correctly
     sys.path.insert(0, backend_dir)
 
     from torrent import create_torrent
     from client import Client, TRACKER_PORT, KEPT_FILES
 
-    # kept_files.txt lives in backend/
     kept_files_path = os.path.join(backend_dir, "kept_files.txt")
 
-    if len(sys.argv) < 2:
-        print("Usage: python gui.py <your_ip> [file_to_seed ...]")
-        sys.exit(1)
+    # Show IP picker
+    picker = IPPickerDialog()
+    my_ip  = picker.ask()
+    if not my_ip:
+        sys.exit(0)  # user closed dialog
 
-    my_ip      = sys.argv[1]
-    seed_files = list(sys.argv[2:])
+    print(f"[GUI] Using IP: {my_ip}")
+
+    seed_files = []
     client     = Client(my_ip)
 
     # Auto-load kept_files.txt
@@ -451,11 +550,9 @@ if __name__ == "__main__":
     # Start engine in background
     client.start(seed_pairs=seed_pairs)
 
-    # Launch GUI (blocks until window closed)
+    # Launch main GUI
     app = App(client)
     app.mainloop()
 
-    # Cleanup
-    client.multi_tracker.stop_all()
     # Cleanup
     client.multi_tracker.stop_all()
