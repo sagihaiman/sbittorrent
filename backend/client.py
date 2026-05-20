@@ -207,22 +207,21 @@ class Client:
             peers  = len(peers),
         )
 
-        # Shared results dict — passed into run_leecher so we can track progress
-        shared_results      = {}
-        shared_results_lock = threading.Lock()
+        local_port = self._next_leech_port()
 
+        # Track progress by polling the output file size
         def progress_tracker():
             while True:
-                with shared_results_lock:
-                    done = len(shared_results)
-                self._set_state(info_hash_hex, done_chunks=done)
-                if done >= num_chunks:
-                    break
-                time.sleep(0.3)
+                if os.path.exists(out_path):
+                    downloaded = os.path.getsize(out_path)
+                    done = min(int(downloaded / (8 * 1024)), num_chunks)
+                    self._set_state(info_hash_hex, done_chunks=done)
+                    if done >= num_chunks:
+                        break
+                time.sleep(0.5)
 
         threading.Thread(target=progress_tracker, daemon=True).start()
 
-        local_port = self._next_leech_port()
         try:
             run_leecher(
                 file_hash=info_hash,
@@ -230,8 +229,6 @@ class Client:
                 out_path=out_path,
                 peers=peers,
                 local_port=local_port,
-                shared_results=shared_results,
-                shared_results_lock=shared_results_lock,
             )
         except RuntimeError as e:
             print(f"[LEECHER] Download failed: {e}")
