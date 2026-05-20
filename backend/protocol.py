@@ -5,7 +5,6 @@ import os
 import threading
 import queue
 
-from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.primitives.asymmetric.dh import DHParameterNumbers
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
@@ -200,7 +199,7 @@ def build_seeder_library(torrent_file_pairs: dict) -> dict:
     torrent_file_pairs: list of (torrent_path, file_path)
     Returns: {info_hash (bytes): {"file_path": ..., "chunks": [...], "file_hash": ...}}
     """
-    from torrent import load_torrent  # import here to avoid circular deps
+    from backend.torrent import load_torrent  # import here to avoid circular deps
 
     library = {}
     for torrent_path, file_path in torrent_file_pairs.items():
@@ -476,15 +475,28 @@ def run_leecher(file_hash: bytes, num_expected_chunks: int, out_path: str,
 
     reassemble_file(results, num_expected_chunks, out_path)
     saved = False
-    with open("kept_files.txt", "r") as f:
-        lines = f.readlines()
-        for row in lines:
-            if row.find(out_path) != -1:
-                saved = True
-                break
-    if saved:
-        with open("kept_files.txt", "a") as f:
-            f.write(out_path)
+    try:
+        with open("kept_files.txt", "r") as f:
+            lines = f.readlines()
+            for row in lines:
+                if row.find(out_path) != -1:
+                    saved = True
+                    break
+        if saved:
+            with open("kept_files.txt", "a") as f:
+                f.write(out_path)
+    except FileNotFoundError:
+        open("kept_files.txt", "x").close()
+        with open("kept_files.txt", "r") as f:
+            lines = f.readlines()
+            for row in lines:
+                if row.find(out_path) != -1:
+                    saved = True
+                    break
+        if saved:
+            with open("kept_files.txt", "a") as f:
+                f.write(out_path)
+
 
 
 

@@ -1,9 +1,9 @@
 import os
 import sys
 import time
-from torrent import load_torrent
-from tracker_client import TrackerClient
-from protocol import run_leecher
+from backend.torrent import load_torrent
+from backend.tracker_client import TrackerClient
+from backend.protocol import run_leecher
 
 LEECH_PORT = 9001
 

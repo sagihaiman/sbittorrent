@@ -2,10 +2,10 @@ import os
 import sys
 import time
 import threading
-from torrent import create_torrent, load_torrent
-from tracker import run_tracker
-from tracker_client import MultiTrackerClient
-from protocol import build_seeder_library, run_seeder
+from backend.torrent import create_torrent
+from backend.tracker import run_tracker
+from backend.tracker_client import MultiTrackerClient
+from backend.protocol import build_seeder_library, run_seeder
 
 TRACKER_PORT = 8000
 SEEDER_PORT  = 9000
@@ -23,7 +23,8 @@ if len(sys.argv) < 2:
 
 my_ip      = sys.argv[1]
 file_paths = []
-with open("kept_files.txt") as f:
+open("../backend/kept_files.txt", "w").close()
+with open("../backend/kept_files.txt", "r") as f:
     for line in f:
         file_paths.append(line.strip())
 file_paths += sys.argv[2:]
