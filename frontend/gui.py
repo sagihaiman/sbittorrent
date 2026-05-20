@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import threading
+import time
 import os
 import sys
 
@@ -403,11 +404,18 @@ class App(ctk.CTk):
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Add project root to path so imports work
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    # Project root is one level above frontend/
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    backend_dir  = os.path.join(project_root, "backend")
 
-    from backend.torrent import create_torrent
+    # Add backend/ to path so all backend modules import each other correctly
+    sys.path.insert(0, backend_dir)
+
+    from torrent import create_torrent
     from client import Client, TRACKER_PORT, KEPT_FILES
+
+    # kept_files.txt lives in backend/
+    kept_files_path = os.path.join(backend_dir, "kept_files.txt")
 
     if len(sys.argv) < 2:
         print("Usage: python gui.py <your_ip> [file_to_seed ...]")
@@ -418,8 +426,8 @@ if __name__ == "__main__":
     client     = Client(my_ip)
 
     # Auto-load kept_files.txt
-    if os.path.exists(KEPT_FILES):
-        with open(KEPT_FILES) as f:
+    if os.path.exists(kept_files_path):
+        with open(kept_files_path) as f:
             for line in f:
                 line = line.strip()
                 if line and os.path.exists(line):
@@ -447,5 +455,7 @@ if __name__ == "__main__":
     app = App(client)
     app.mainloop()
 
+    # Cleanup
+    client.multi_tracker.stop_all()
     # Cleanup
     client.multi_tracker.stop_all()

@@ -1,16 +1,20 @@
 import os
+import sys
 import time
 import threading
-from backend.torrent import create_torrent, load_torrent
-from backend.tracker import run_tracker
-from backend.tracker_client import MultiTrackerClient
-from backend.protocol import run_seeder, run_leecher, file_sha1, split_file
+from torrent import create_torrent, load_torrent
+from tracker import run_tracker
+from tracker_client import MultiTrackerClient
+from protocol import run_seeder, run_leecher, file_sha1, split_file
 
 TRACKER_PORT = 8000
 SEEDER_PORT  = 9000
 LEECH_PORT   = 9001
-DOWNLOAD_DIR = "../downloads"
-KEPT_FILES   = "kept_files.txt"
+
+# Always resolve paths relative to client.py (backend/) regardless of cwd
+_HERE        = os.path.dirname(os.path.abspath(__file__))
+DOWNLOAD_DIR = os.path.join(_HERE, "downloads")
+KEPT_FILES   = os.path.join(_HERE, "kept_files.txt")
 
 # ─────────────────────────────────────────────
 # CLIENT
