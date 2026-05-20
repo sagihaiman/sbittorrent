@@ -1,37 +1,41 @@
 import customtkinter as ctk
 import threading
-import time
+import socket
 import os
 import sys
 
-# ── Theme ─────────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
-BG          = "#C8922A"
-TOOLBAR_BG  = "#8B8B2A"
-PANEL_BG    = "#9B5E1A"
-ROW_BG      = "#7A4010"
-ROW_HOVER   = "#6B3508"
-ROW_DOWN    = "#7A3A00"
-ACCENT      = "#6B0A0A"
-TEXT_LIGHT  = "#C8922A"
-TEXT_BODY   = "#1A0A00"
-WHITE       = "#F5E6C8"
+BG         = "#C8922A"
+TOOLBAR_BG = "#8B8B2A"
+PANEL_BG   = "#9B5E1A"
+ROW_BG     = "#7A4010"
+ROW_HOVER  = "#6B3508"
+ROW_DOWN   = "#7A3A00"
+ACCENT     = "#6B0A0A"
+TEXT_LIGHT = "#C8922A"
+TEXT_BODY  = "#1A0A00"
+WHITE      = "#F5E6C8"
 
-FONT_TITLE  = ("Impact", 42, "bold")
-FONT_BTN    = ("Arial Rounded MT Bold", 14, "bold")
-FONT_HEAD   = ("Arial Rounded MT Bold", 13, "bold")
-FONT_ROW    = ("Arial", 13, "bold")
-FONT_SMALL  = ("Arial", 11)
+FONT_TITLE = ("Impact", 42, "bold")
+FONT_BTN   = ("Arial Rounded MT Bold", 14, "bold")
+FONT_HEAD  = ("Arial Rounded MT Bold", 13, "bold")
+FONT_ROW   = ("Arial", 13, "bold")
+FONT_SMALL = ("Arial", 11)
 
-COL_WIDTHS  = [220, 80, 90, 120, 60, 60, 70]
-COL_NAMES   = ["Name", "Size", "Chunks", "Status", "Seeds", "Peers", "Leeches"]
-TOTAL_ROWS  = 8
-
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
+# Column definitions: (header, min_width, weight)
+# weight=1 means the column stretches, weight=0 means fixed
+COLUMNS = [
+    ("Name",    200, 1),
+    ("Size",     70, 0),
+    ("Chunks",   80, 0),
+    ("Status",  110, 0),
+    ("Seeds",    55, 0),
+    ("Peers",    55, 0),
+    ("Leeches",  65, 0),
+]
+TOTAL_ROWS = 8
 
 def fmt_size(b):
     if b >= 1073741824: return f"{b/1073741824:.1f} GB"
@@ -39,12 +43,22 @@ def fmt_size(b):
     if b >= 1024:       return f"{round(b/1024)} KB"
     return f"{b} B"
 
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
 # ─────────────────────────────────────────────
 # MODAL BASE
 # ─────────────────────────────────────────────
 
 class Modal(ctk.CTkToplevel):
-    def __init__(self, parent, title):
+    def __init__(self, parent, title, height=220):
         super().__init__(parent)
         self.title(title)
         self.configure(fg_color=PANEL_BG)
@@ -52,30 +66,29 @@ class Modal(ctk.CTkToplevel):
         self.grab_set()
         self.lift()
         self.focus_force()
-        # Center on parent
         self.update_idletasks()
+        w = 440
         px = parent.winfo_x() + parent.winfo_width()  // 2
         py = parent.winfo_y() + parent.winfo_height() // 2
-        w, h = 420, 200
-        self.geometry(f"{w}x{h}+{px - w//2}+{py - h//2}")
-
-    def _buttons(self, frame, ok_text, ok_cmd):
-        ctk.CTkButton(frame, text="Cancel", command=self.destroy,
-                      fg_color=ROW_HOVER, hover_color=ROW_BG,
-                      text_color=TEXT_LIGHT, font=FONT_BTN,
-                      corner_radius=10, width=100).pack(side="left", padx=(0,10))
-        ctk.CTkButton(frame, text=ok_text, command=ok_cmd,
-                      fg_color=ACCENT, hover_color="#4A0505",
-                      text_color=TEXT_LIGHT, font=FONT_BTN,
-                      corner_radius=10, width=120).pack(side="left")
+        self.geometry(f"{w}x{height}+{px - w//2}+{py - height//2}")
 
     def _input(self, parent, placeholder):
         e = ctk.CTkEntry(parent, placeholder_text=placeholder,
                          fg_color=ROW_BG, border_color=ROW_HOVER,
                          text_color=WHITE, placeholder_text_color="#9B6030",
                          font=FONT_ROW, corner_radius=10, height=38)
-        e.pack(fill="x", pady=(0, 6))
+        e.pack(fill="x", pady=(0, 8))
         return e
+
+    def _buttons(self, frame, ok_text, ok_cmd):
+        ctk.CTkButton(frame, text="Cancel", command=self.destroy,
+                      fg_color=ROW_HOVER, hover_color=ROW_BG,
+                      text_color=TEXT_LIGHT, font=FONT_BTN,
+                      corner_radius=10, width=100).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(frame, text=ok_text, command=ok_cmd,
+                      fg_color=ACCENT, hover_color="#4A0505",
+                      text_color=TEXT_LIGHT, font=FONT_BTN,
+                      corner_radius=10, width=130).pack(side="left")
 
 # ─────────────────────────────────────────────
 # MODALS
@@ -85,82 +98,64 @@ class LeechModal(Modal):
     def __init__(self, parent, on_submit):
         super().__init__(parent, "Open Torrent")
         self.on_submit = on_submit
-        pad = {"padx": 24, "pady": 8}
-
         ctk.CTkLabel(self, text="Open Torrent", font=("Impact", 22),
-                     text_color=ACCENT).pack(anchor="w", **pad)
-        ctk.CTkLabel(self, text="Path to .torrent file", font=FONT_SMALL,
-                     text_color=ACCENT).pack(anchor="w", padx=24, pady=(0,2))
-
-        inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill="x", padx=24)
-        self.entry = self._input(inner, "/path/to/file.torrent")
+                     text_color=ACCENT).pack(anchor="w", padx=24, pady=(16, 2))
+        ctk.CTkLabel(self, text="Path to .torrent file",
+                     font=FONT_SMALL, text_color=ACCENT).pack(anchor="w", padx=24)
+        f = ctk.CTkFrame(self, fg_color="transparent")
+        f.pack(fill="x", padx=24, pady=(6, 0))
+        self.entry = self._input(f, "/path/to/file.torrent")
         self.entry.bind("<Return>", lambda e: self._ok())
-
-        btns = ctk.CTkFrame(self, fg_color="transparent")
-        btns.pack(anchor="e", padx=24, pady=10)
-        self._buttons(btns, "Download", self._ok)
+        bf = ctk.CTkFrame(self, fg_color="transparent")
+        bf.pack(anchor="e", padx=24, pady=8)
+        self._buttons(bf, "Download", self._ok)
 
     def _ok(self):
-        path = self.entry.get().strip()
-        if path:
-            self.on_submit(path)
-            self.destroy()
+        p = self.entry.get().strip()
+        if p: self.on_submit(p); self.destroy()
 
 
 class SeedModal(Modal):
     def __init__(self, parent, on_submit):
         super().__init__(parent, "Create Torrent")
         self.on_submit = on_submit
-        pad = {"padx": 24, "pady": 8}
-
         ctk.CTkLabel(self, text="Create Torrent", font=("Impact", 22),
-                     text_color=ACCENT).pack(anchor="w", **pad)
-        ctk.CTkLabel(self, text="Path to file you want to seed", font=FONT_SMALL,
-                     text_color=ACCENT).pack(anchor="w", padx=24, pady=(0,2))
-
-        inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill="x", padx=24)
-        self.entry = self._input(inner, "/path/to/yourfile.epub")
+                     text_color=ACCENT).pack(anchor="w", padx=24, pady=(16, 2))
+        ctk.CTkLabel(self, text="Path to file you want to seed",
+                     font=FONT_SMALL, text_color=ACCENT).pack(anchor="w", padx=24)
+        f = ctk.CTkFrame(self, fg_color="transparent")
+        f.pack(fill="x", padx=24, pady=(6, 0))
+        self.entry = self._input(f, "/path/to/yourfile.epub")
         self.entry.bind("<Return>", lambda e: self._ok())
-
-        btns = ctk.CTkFrame(self, fg_color="transparent")
-        btns.pack(anchor="e", padx=24, pady=10)
-        self._buttons(btns, "Create & Seed", self._ok)
+        bf = ctk.CTkFrame(self, fg_color="transparent")
+        bf.pack(anchor="e", padx=24, pady=8)
+        self._buttons(bf, "Create & Seed", self._ok)
 
     def _ok(self):
-        path = self.entry.get().strip()
-        if path:
-            self.on_submit(path)
-            self.destroy()
+        p = self.entry.get().strip()
+        if p: self.on_submit(p); self.destroy()
 
 
 class FolderModal(Modal):
     def __init__(self, parent, current, on_submit):
-        super().__init__(parent, "Downloads Folder")
+        super().__init__(parent, "Downloads Folder", height=230)
         self.on_submit = on_submit
-        pad = {"padx": 24, "pady": 8}
-
         ctk.CTkLabel(self, text="Downloads Folder", font=("Impact", 22),
-                     text_color=ACCENT).pack(anchor="w", **pad)
-        ctk.CTkLabel(self, text=f"Current: {current}", font=FONT_SMALL,
-                     text_color=ACCENT).pack(anchor="w", padx=24, pady=(0,2))
-
-        inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(fill="x", padx=24)
-        self.entry = self._input(inner, "/path/to/downloads")
+                     text_color=ACCENT).pack(anchor="w", padx=24, pady=(16, 2))
+        ctk.CTkLabel(self, text=f"Current: {current}",
+                     font=FONT_SMALL, text_color=ACCENT).pack(anchor="w", padx=24)
+        f = ctk.CTkFrame(self, fg_color="transparent")
+        f.pack(fill="x", padx=24, pady=(6, 0))
+        self.entry = self._input(f, "/path/to/downloads")
         self.entry.insert(0, current)
         self.entry.bind("<Return>", lambda e: self._ok())
-
-        btns = ctk.CTkFrame(self, fg_color="transparent")
-        btns.pack(anchor="e", padx=24, pady=10)
-        self._buttons(btns, "Save", self._ok)
+        bf = ctk.CTkFrame(self, fg_color="transparent")
+        bf.pack(anchor="e", padx=24, pady=8)
+        self._buttons(bf, "Save", self._ok)
 
     def _ok(self):
-        path = self.entry.get().strip()
-        if path:
-            self.on_submit(path)
-            self.destroy()
+        p = self.entry.get().strip()
+        if p: self.on_submit(p); self.destroy()
 
 # ─────────────────────────────────────────────
 # TOAST
@@ -169,8 +164,7 @@ class FolderModal(Modal):
 class Toast(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color=ACCENT, corner_radius=50)
-        self.label = ctk.CTkLabel(self, text="", font=FONT_BTN,
-                                  text_color=TEXT_LIGHT)
+        self.label = ctk.CTkLabel(self, text="", font=FONT_BTN, text_color=TEXT_LIGHT)
         self.label.pack(padx=20, pady=8)
         self._job = None
 
@@ -178,41 +172,65 @@ class Toast(ctk.CTkFrame):
         self.label.configure(text=msg)
         self.place(relx=0.5, rely=0.95, anchor="s")
         self.lift()
-        if self._job:
-            self.after_cancel(self._job)
+        if self._job: self.after_cancel(self._job)
         self._job = self.after(ms, self.place_forget)
 
 # ─────────────────────────────────────────────
-# ROW WIDGET
+# TABLE ROW
+# Uses a single Frame with grid layout.
+# Header and rows share identical grid config
+# so columns always align.
 # ─────────────────────────────────────────────
 
-class TorrentRow(ctk.CTkFrame):
-    def __init__(self, parent, empty=False):
-        super().__init__(parent, fg_color=ROW_BG, corner_radius=11,
-                         height=42)
-        self.pack(fill="x", pady=3)
+def _configure_grid(widget):
+    """Apply the same column weights to any grid container."""
+    for i, (_, min_w, weight) in enumerate(COLUMNS):
+        widget.columnconfigure(i, minsize=min_w, weight=weight)
+
+
+class HeaderRow(ctk.CTkFrame):
+    def __init__(self, parent):
+        super().__init__(parent, fg_color="transparent", height=28)
+        self.pack(fill="x", padx=4, pady=(8, 2))
         self.pack_propagate(False)
+        _configure_grid(self)
+        for i, (name, _, _) in enumerate(COLUMNS):
+            ctk.CTkLabel(self, text=name, font=FONT_HEAD,
+                         text_color=ACCENT, anchor="w"
+                         ).grid(row=0, column=i,
+                                padx=(12 if i == 0 else 6, 6),
+                                sticky="w")
+
+
+class TorrentRow(ctk.CTkFrame):
+    def __init__(self, parent):
+        super().__init__(parent, fg_color=ROW_BG, corner_radius=11, height=44)
+        self.pack(fill="x", padx=4, pady=3)
+        self.pack_propagate(False)
+        _configure_grid(self)
 
         self.labels = []
-        for i, w in enumerate(COL_WIDTHS):
+        for i in range(len(COLUMNS)):
             lbl = ctk.CTkLabel(self, text="", font=FONT_ROW,
-                               text_color=TEXT_BODY, width=w,
-                               anchor="w")
-            lbl.grid(row=0, column=i, padx=(10 if i==0 else 4, 4), pady=0, sticky="w")
+                               text_color=ROW_BG, anchor="w")
+            lbl.grid(row=0, column=i,
+                     padx=(12 if i == 0 else 6, 6),
+                     sticky="w")
             self.labels.append(lbl)
 
-        self.columnconfigure(0, weight=1)
-
-        # Progress bar (hidden by default, shown over Chunks label)
+        # Progress bar sits in the Chunks column (index 2)
         self.prog_var = ctk.DoubleVar(value=0)
-        self.prog     = ctk.CTkProgressBar(self, variable=self.prog_var,
-                                           fg_color=ROW_HOVER,
-                                           progress_color=ACCENT,
-                                           corner_radius=3, height=4, width=80)
-        if empty:
-            self.configure(fg_color=ROW_BG)
-            for lbl in self.labels:
-                lbl.configure(text_color=ROW_BG)
+        self.prog = ctk.CTkProgressBar(self, variable=self.prog_var,
+                                       fg_color=ROW_HOVER,
+                                       progress_color=ACCENT,
+                                       corner_radius=3, height=4)
+        # Not placed until needed
+
+    def set_empty(self):
+        self.configure(fg_color=ROW_BG)
+        for lbl in self.labels:
+            lbl.configure(text="", text_color=ROW_BG)
+        self.prog.place_forget()
 
     def update_data(self, data: dict):
         done   = data.get("done_chunks", 0)
@@ -230,21 +248,18 @@ class TorrentRow(ctk.CTkFrame):
             str(data.get("leeches", 0)),
         ]
         for lbl, val in zip(self.labels, values):
-            # Truncate long names
-            if len(val) > 28 and lbl == self.labels[0]:
-                val = val[:25] + "..."
             lbl.configure(text=val, text_color=TEXT_BODY)
 
-        # Color row by status
-        if status in ("Downloading", "Connecting") or status.startswith("Waiting"):
-            self.configure(fg_color=ROW_DOWN)
-        else:
-            self.configure(fg_color=ROW_BG)
+        # Row color by status
+        downloading = status in ("Downloading", "Connecting") or status.startswith("Waiting")
+        self.configure(fg_color=ROW_DOWN if downloading else ROW_BG)
 
-        # Show progress bar under chunks column
-        if pct < 1.0 and status == "Downloading":
+        # Progress bar in chunks column
+        if downloading and pct < 1.0:
             self.prog_var.set(pct)
-            self.prog.place(x=sum(COL_WIDTHS[:2]) + 16, y=30)
+            # Place it below the chunks label inside the row
+            self.prog.place(relx=0, rely=1.0, anchor="sw",
+                            relwidth=1.0 / len(COLUMNS) * 2, x=12, y=-2)
         else:
             self.prog.place_forget()
 
@@ -257,124 +272,100 @@ class App(ctk.CTk):
         super().__init__()
         self.client = client
         self.title("SBITTORRENT")
-        self.geometry("900x620")
-        self.minsize(800, 500)
+        self.geometry("920x600")
+        self.minsize(760, 480)
         self.configure(fg_color=BG)
-        self.resizable(True, True)
 
         self._build_toolbar()
         self._build_main()
-
-        self.toast  = Toast(self)
-        self._rows  = []
+        self.toast = Toast(self)
+        self._rows = []
         self._build_rows()
-
-        # Start polling
         self._poll()
 
-    # ── Toolbar ────────────────────────────────────────────────────────────────
+    # ── Toolbar ───────────────────────────────────────────────────────────────
 
     def _build_toolbar(self):
-        self.toolbar = ctk.CTkFrame(self, fg_color=TOOLBAR_BG,
-                                    corner_radius=0)
-        self.toolbar.pack(fill="x")
-
-        # Round bottom corners via inner padding
-        inner = ctk.CTkFrame(self.toolbar, fg_color=TOOLBAR_BG, corner_radius=28)
-        inner.pack(fill="x", padx=0, pady=(0, 0))
-
+        bar = ctk.CTkFrame(self, fg_color=TOOLBAR_BG, corner_radius=0)
+        bar.pack(fill="x")
+        inner = ctk.CTkFrame(bar, fg_color=TOOLBAR_BG, corner_radius=26)
+        inner.pack(fill="x")
         ctk.CTkLabel(inner, text="SBITTORRENT", font=FONT_TITLE,
                      text_color=ACCENT).pack(pady=(14, 4))
-
         btns = ctk.CTkFrame(inner, fg_color="transparent")
         btns.pack(pady=(0, 12))
-
         for text, cmd in [
-            ("open torrent",          self._open_leech),
+            ("open torrent",            self._open_leech),
             ("change downloads folder", self._open_folder),
-            ("create torrent",        self._open_seed),
+            ("create torrent",          self._open_seed),
         ]:
             ctk.CTkButton(btns, text=text, command=cmd,
-                          fg_color="transparent", hover_color=f"#5A5A1A",
+                          fg_color="transparent", hover_color="#5A5A1A",
                           text_color=ACCENT, font=FONT_BTN,
-                          corner_radius=8, border_width=0).pack(side="left", padx=18)
+                          corner_radius=8, border_width=0
+                          ).pack(side="left", padx=18)
 
-    # ── Main panel ─────────────────────────────────────────────────────────────
+    # ── Main panel ────────────────────────────────────────────────────────────
 
     def _build_main(self):
-        self.main = ctk.CTkFrame(self, fg_color="transparent")
-        self.main.pack(fill="both", expand=True, padx=24, pady=(16, 8))
+        outer = ctk.CTkFrame(self, fg_color="transparent")
+        outer.pack(fill="both", expand=True, padx=22, pady=(14, 6))
 
-        self.panel = ctk.CTkFrame(self.main, fg_color=PANEL_BG, corner_radius=22)
+        self.panel = ctk.CTkFrame(outer, fg_color=PANEL_BG, corner_radius=22)
         self.panel.pack(fill="both", expand=True)
 
-        # Header row
-        hdr = ctk.CTkFrame(self.panel, fg_color="transparent")
-        hdr.pack(fill="x", padx=16, pady=(12, 4))
+        # Fixed header (not scrollable)
+        HeaderRow(self.panel)
 
-        for i, (name, w) in enumerate(zip(COL_NAMES, COL_WIDTHS)):
-            ctk.CTkLabel(hdr, text=name, font=FONT_HEAD,
-                         text_color=ACCENT, width=w, anchor="w"
-                         ).grid(row=0, column=i, padx=(10 if i==0 else 4, 4), sticky="w")
+        # Scrollable rows
+        self.rows_frame = ctk.CTkScrollableFrame(
+            self.panel, fg_color="transparent",
+            scrollbar_button_color=ROW_HOVER,
+            scrollbar_button_hover_color=ROW_BG
+        )
+        self.rows_frame.pack(fill="both", expand=True, padx=8, pady=(0, 10))
 
-        # Scrollable rows container
-        self.rows_frame = ctk.CTkScrollableFrame(self.panel, fg_color="transparent",
-                                                  scrollbar_button_color=ROW_HOVER,
-                                                  scrollbar_button_hover_color=ROW_BG)
-        self.rows_frame.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-
-        # Footer
-        self.footer_var = ctk.StringVar(value="connecting...")
-        ctk.CTkLabel(self.main, textvariable=self.footer_var,
-                     font=FONT_SMALL, text_color=ACCENT
-                     ).pack(pady=(6, 0))
+        self.footer_var = ctk.StringVar(value="starting...")
+        ctk.CTkLabel(outer, textvariable=self.footer_var,
+                     font=FONT_SMALL, text_color=ACCENT).pack(pady=(4, 0))
 
     def _build_rows(self):
-        for widget in self.rows_frame.winfo_children():
-            widget.destroy()
         self._rows = []
         for _ in range(TOTAL_ROWS):
-            row = TorrentRow(self.rows_frame, empty=True)
+            row = TorrentRow(self.rows_frame)
+            row.set_empty()
             self._rows.append(row)
 
-    # ── Poll client state ──────────────────────────────────────────────────────
+    # ── Poll ──────────────────────────────────────────────────────────────────
 
     def _poll(self):
         states = self.client.get_all_states()
         self._render(states)
         self.footer_var.set(
-            f"your ip: {self.client.my_ip}  •  "
-            f"tracker: {self.client.tracker_url}  •  "
+            f"ip: {self.client.my_ip}  •  "
+            f"tracker: port {self.client.tracker_url.split(':')[-1].split('/')[0]}  •  "
             f"downloads: {self.client.download_dir}"
         )
-        self.after(2000, self._poll)
+        self.after(1000, self._poll)   # poll every second for snappier progress
 
-    def _render(self, states: list):
-        # Grow rows list if needed
+    def _render(self, states):
+        # Add rows if needed
         while len(self._rows) < max(TOTAL_ROWS, len(states)):
-            self._rows.append(TorrentRow(self.rows_frame))
+            row = TorrentRow(self.rows_frame)
+            self._rows.append(row)
 
         for i, row in enumerate(self._rows):
             if i < len(states):
-                row.configure(fg_color=ROW_BG)
-                for lbl in row.labels:
-                    lbl.configure(text_color=TEXT_BODY)
                 row.update_data(states[i])
-                row.pack(fill="x", pady=3)
             else:
-                # Empty placeholder
-                row.configure(fg_color=ROW_BG)
-                for lbl in row.labels:
-                    lbl.configure(text="", text_color=ROW_BG)
-                row.prog.place_forget()
-                row.pack(fill="x", pady=3)
+                row.set_empty()
 
-    # ── Toolbar actions ────────────────────────────────────────────────────────
+    # ── Actions ───────────────────────────────────────────────────────────────
 
     def _open_leech(self):
         def submit(path):
             if not os.path.exists(path):
-                self.toast.show(f"File not found: {path}")
+                self.toast.show(f"File not found: {os.path.basename(path)}")
                 return
             self.client.leech_in_background(path)
             self.toast.show("Download started!")
@@ -383,119 +374,21 @@ class App(ctk.CTk):
     def _open_seed(self):
         def submit(path):
             if not os.path.exists(path):
-                self.toast.show(f"File not found: {path}")
+                self.toast.show(f"File not found: {os.path.basename(path)}")
                 return
             def do():
                 torrent = self.client.seed_file(path)
                 self.client._save_to_kept_files(path)
-                self.after(0, lambda: self.toast.show(f"Seeding! Torrent: {os.path.basename(torrent)}"))
+                self.after(0, lambda: self.toast.show(
+                    f"Seeding! Share: {os.path.basename(torrent)}"))
             threading.Thread(target=do, daemon=True).start()
         SeedModal(self, submit)
 
     def _open_folder(self):
         def submit(path):
             self.client.set_download_dir(path)
-            self.toast.show(f"Downloads folder updated!")
+            self.toast.show("Downloads folder updated!")
         FolderModal(self, self.client.download_dir, submit)
-
-
-# ─────────────────────────────────────────────
-# IP PICKER (shown before main window)
-# ─────────────────────────────────────────────
-
-def get_all_ips() -> list:
-    """Return all non-loopback IPv4 addresses on this machine."""
-    import socket
-    ips = []
-    try:
-        # Get all interfaces
-        for info in socket.getaddrinfo(socket.gethostname(), None):
-            ip = info[4][0]
-            if ip and not ip.startswith("127.") and ":" not in ip:
-                if ip not in ips:
-                    ips.append(ip)
-    except Exception:
-        pass
-
-    # Also try the routing trick as a candidate
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        routed = s.getsockname()[0]
-        s.close()
-        if routed not in ips and not routed.startswith("127."):
-            ips.append(routed)
-    except Exception:
-        pass
-
-    return ips or ["127.0.0.1"]
-
-
-class IPPickerDialog(ctk.CTkToplevel):
-    """Shown on startup — lets user pick which network interface to use."""
-
-    def __init__(self):
-        # Temporary root just for this dialog
-        self._root_window = ctk.CTk()
-        self._root_window.withdraw()  # hide the blank root
-
-        super().__init__(self._root_window)
-        self.title("SBITTORRENT — Select Network Interface")
-        self.configure(fg_color=PANEL_BG)
-        self.resizable(False, False)
-        self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.grab_set()
-
-        # Center on screen
-        self.update_idletasks()
-        w, h = 420, 240
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
-
-        self.result = None
-        self._build()
-        self.lift()
-        self.focus_force()
-
-    def _build(self):
-        ctk.CTkLabel(self, text="SBITTORRENT", font=FONT_TITLE,
-                     text_color=ACCENT).pack(pady=(18, 4))
-        ctk.CTkLabel(self, text="Select your network interface (LAN, not VPN)",
-                     font=FONT_SMALL, text_color=ACCENT).pack(pady=(0, 10))
-
-        ips = get_all_ips()
-        self._var = ctk.StringVar(value=ips[0])
-
-        self._menu = ctk.CTkOptionMenu(
-            self, values=ips, variable=self._var,
-            fg_color=ROW_BG, button_color=ACCENT,
-            button_hover_color="#4A0505",
-            dropdown_fg_color=ROW_BG,
-            dropdown_hover_color=ROW_HOVER,
-            text_color=WHITE, dropdown_text_color=WHITE,
-            font=FONT_ROW, width=300
-        )
-        self._menu.pack(pady=(0, 16))
-
-        ctk.CTkButton(self, text="Launch", command=self._ok,
-                      fg_color=ACCENT, hover_color="#4A0505",
-                      text_color=TEXT_LIGHT, font=FONT_BTN,
-                      corner_radius=10, width=160).pack()
-
-    def _ok(self):
-        self.result = self._var.get()
-        self._root_window.quit()
-
-    def _cancel(self):
-        self.result = None
-        self._root_window.quit()
-
-    def ask(self) -> str:
-        self._root_window.mainloop()
-        self.destroy()
-        self._root_window.destroy()
-        return self.result
 
 
 # ─────────────────────────────────────────────
@@ -503,7 +396,6 @@ class IPPickerDialog(ctk.CTkToplevel):
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Project root is one level above frontend/
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     backend_dir  = os.path.join(project_root, "backend")
     sys.path.insert(0, backend_dir)
@@ -513,16 +405,12 @@ if __name__ == "__main__":
 
     kept_files_path = os.path.join(backend_dir, "kept_files.txt")
 
-    # Show IP picker
-    picker = IPPickerDialog()
-    my_ip  = picker.ask()
-    if not my_ip:
-        sys.exit(0)  # user closed dialog
-
+    # Auto-detect IP
+    my_ip = get_local_ip()
     print(f"[GUI] Using IP: {my_ip}")
 
-    seed_files = []
     client     = Client(my_ip)
+    seed_files = []
 
     # Auto-load kept_files.txt
     if os.path.exists(kept_files_path):
@@ -532,27 +420,21 @@ if __name__ == "__main__":
                 if line and os.path.exists(line):
                     seed_files.append(line)
                 elif line:
-                    print(f"[GUI] kept_files.txt: skipping missing: {line}")
+                    print(f"[GUI] Skipping missing file: {line}")
 
-    # Deduplicate
     seed_files = list(dict.fromkeys(os.path.abspath(p) for p in seed_files if os.path.exists(p)))
 
-    # Build seed pairs
     seed_pairs = []
     for fp in seed_files:
         tp = fp + ".torrent"
         if os.path.exists(tp):
-            print(f"[GUI] Reusing torrent: {tp}")
+            print(f"[GUI] Reusing torrent: {os.path.basename(tp)}")
         else:
             create_torrent(fp, f"http://{my_ip}:{TRACKER_PORT}/announce", tp)
         seed_pairs.append((tp, fp))
 
-    # Start engine in background
     client.start(seed_pairs=seed_pairs)
 
-    # Launch main GUI
     app = App(client)
     app.mainloop()
-
-    # Cleanup
     client.multi_tracker.stop_all()

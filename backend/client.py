@@ -6,7 +6,6 @@ from torrent import create_torrent, load_torrent
 from tracker import run_tracker
 from tracker_client import MultiTrackerClient
 from protocol import run_seeder, run_leecher, file_sha1, split_file
-import socket
 
 TRACKER_PORT = 8000
 SEEDER_PORT  = 9000
@@ -14,27 +13,14 @@ LEECH_PORT   = 9001
 
 # Always resolve paths relative to client.py (backend/) regardless of cwd
 _HERE        = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_DIR = os.path.join(_HERE, "downloads")
+DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "Torrents")
 KEPT_FILES   = os.path.join(_HERE, "kept_files.txt")
 
 # ─────────────────────────────────────────────
 # CLIENT
 # ─────────────────────────────────────────────
 
-def get_local_ip() -> str:
-    try:
-        # Connect to an external address to find which interface we'd use
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"
-
-
 class Client:
-
     def __init__(self, my_ip: str):
         self.my_ip              = my_ip
         self.tracker_url        = f"http://{my_ip}:{TRACKER_PORT}/announce"
@@ -221,19 +207,18 @@ class Client:
             peers  = len(peers),
         )
 
-        # Patch run_leecher to report progress — wrap results dict
-        results      = {}
-        results_lock = threading.Lock()
+        # Shared results dict — passed into run_leecher so we can track progress
+        shared_results      = {}
+        shared_results_lock = threading.Lock()
 
         def progress_tracker():
-            """Poll results dict and update GUI state."""
             while True:
-                with results_lock:
-                    done = len(results)
+                with shared_results_lock:
+                    done = len(shared_results)
                 self._set_state(info_hash_hex, done_chunks=done)
                 if done >= num_chunks:
                     break
-                time.sleep(0.5)
+                time.sleep(0.3)
 
         threading.Thread(target=progress_tracker, daemon=True).start()
 
@@ -245,9 +230,16 @@ class Client:
                 out_path=out_path,
                 peers=peers,
                 local_port=local_port,
+                shared_results=shared_results,
+                shared_results_lock=shared_results_lock,
             )
         except RuntimeError as e:
             print(f"[LEECHER] Download failed: {e}")
+            self._set_state(info_hash_hex, status="Failed")
+            return
+
+        # Only mark as seeding if file actually exists
+        if not os.path.exists(out_path):
             self._set_state(info_hash_hex, status="Failed")
             return
 
@@ -274,4 +266,3 @@ class Client:
         self.download_dir = os.path.abspath(path)
         os.makedirs(self.download_dir, exist_ok=True)
         print(f"[CLIENT] Download dir: {self.download_dir}")
-
